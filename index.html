@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Tic Tac Toe</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+</head>
+
+<body>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 800,
+            height: 600,
+            scene: {
+                create: create,
+                init: init,
+                preload: preload,
+                update: update
+            }
+        };
+        const game = new Phaser.Game(config);
+
+        function preload() { }
+
+        function update() { }
+
+        function init() {
+            this.playerCharacter = '';
+            this.playLock = true;
+            this.tableInfo = [];
+            this.tableMatrix = [
+                [0, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0]
+            ];
+
+            this.tableWidth = game.config.height * 0.7; this.cellWidth = this.tableWidth / 3;
+            this.startX = (game.config.width - this.tableWidth) * 0.5, this.startY = (game.config.height - this.tableWidth) * 0.5;
+        }
+
+        function create() {
+            //connect to socket
+            this.socket = io();
+
+            const tableItems = [];
+            
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    let character = this.add.text(this.startX + (this.cellWidth * 0.5) + (j * this.cellWidth), this.startY + (this.cellWidth * 0.5) + (i * this.cellWidth), '', { font: '52px Arial' }).setOrigin(0.5);
+                    let cellZone = this.add.zone(character.x, character.y, this.cellWidth, this.cellWidth).setInteractive({ useHandCursor: true });
+                    this.tableInfo.push({ id: (i * 3) + j, content: character });
+                    tableItems.push(character, cellZone);
+
+                    cellZone.on('pointerup', () => {
+                        if (!this.playLock && character.text == '') {
+                            //emit move
+                            this.socket.emit('move', { room: this.roomToken, place: (i * 3) + j });
+                        }
+                    }, this);
+                }
+            }
+
+            for (let i = 1; i < 3; i++) {
+                const line1 = this.add.graphics().lineStyle(2, 0xffffff, 1).lineBetween(this.startX + (i * this.cellWidth), this.startY, this.startX + (i * this.cellWidth), this.startY + this.tableWidth);
+                const line2 = this.add.graphics().lineStyle(2, 0xffffff, 1).lineBetween(this.startX, this.startY + (i * this.cellWidth), this.startX + this.tableWidth, this.startY + (i * this.cellWidth));
+                tableItems.push(line1, line2);
+            }
+            this.tableContainer = this.add.container(0, 0, tableItems);
+            this.tableContainer.setVisible(false);
+
+            const boxBackground = this.add.rectangle(180, 100, 360, 200, 0x333333);
+            const boxTitle = this.add.text(180, 20, 'WELCOME!', { font: '32px Arial' }).setOrigin(0.5, 0);
+            this.boxText = this.add.text(180, 100, '', { font: '22px Arial', align: 'center', wordWrap: { width: 320, useAdvancedWrap: true } }).setOrigin(0.5).setAlpha(0.7);
+            this.boxChar = this.add.text(180, 180, '', { font: '24px Arial' }).setOrigin(0.5, 1);
+            this.welcomeBox = this.add.container((game.config.width * 0.5) - 180, (game.config.height * 0.5) - 100, [boxBackground, boxTitle, this.boxText, this.boxChar]);
+            this.welcomeBox.setVisible(false);
+
+            const chooseBackground = this.add.rectangle(180, 120, 360, 240, 0x333333);
+            const chooseTitle = this.add.text(180, 20, 'TIC TAC TOE', { font: '32px Arial' }).setOrigin(0.5, 0);
+            const chooseCreateBack = this.add.rectangle(180, chooseTitle.y + chooseTitle.displayHeight + 50, 280, 60, 0xffffff);
+            const chooseCreateText = this.add.text(chooseCreateBack.x, chooseCreateBack.y, 'CREATE A ROOM', { font: '28px Arial', color: '#000000' }).setOrigin(0.5);
+            const chooseJoinBack = this.add.rectangle(180, chooseTitle.y + chooseTitle.displayHeight + 130, 280, 60, 0xffffff);
+            const chooseJoinText = this.add.text(chooseJoinBack.x, chooseJoinBack.y, 'JOIN A ROOM', { font: '28px Arial', color: '#000000' }).setOrigin(0.5);
+            this.chooseBox = this.add.container((game.config.width * 0.5) - 180, (game.config.height * 0.5) - 120, [chooseBackground, chooseTitle, chooseCreateBack, chooseCreateText, chooseJoinBack, chooseJoinText]);
+
+            chooseCreateBack.setInteractive({ useHandCursor: true });
+            chooseJoinBack.setInteractive({ useHandCursor: true });
+
+            chooseCreateBack.on('pointerup', () => {
+                //emit create room
+                this.socket.emit('createRoom');
+            }, this);
+
+            chooseJoinBack.on('pointerup', () => {
+                const token = prompt("Enter the room code", "");
+                if (token != null) {
+                    //emit join room
+                    this.socket.emit('joinRoom', token);
+                }
+            }, this);
+
+            this.startText = this.add.text(game.config.width / 2, game.config.height / 2, 'START', { font: '42px Arial' }).setOrigin(0.5).setVisible(false);
+
+            this.playerText = this.add.text(game.config.width - 20, 20, '', { font: '28px Arial' }).setOrigin(1, 0);
+            this.infoText = this.add.text(game.config.width / 2, game.config.height - 20, '', { font: '28px Arial' }).setOrigin(0.5, 1);
+
+            this.socket.on('roomCreated', (token) => {
+                this.chooseBox.setVisible(false);
+                this.boxText.text = "Please wait while another player joins you";
+                this.boxChar.text = 'Room token: ' + token;
+                this.welcomeBox.setVisible(true);
+            });
+
+            this.socket.on('startGame', (info) => {
+                this.roomToken = info.room;
+                this.playerCharacter = info.player;
+                this.playLock = !info.turn;
+
+                this.playerText.text = "Your piece: " + this.playerCharacter;
+                if (info.turn) {
+                    this.infoText.text = "It is your turn to play";
+                }
+                else {
+                    this.infoText.text = "Please wait for your opponent to play";
+                }
+                this.welcomeBox.setVisible(false);
+                this.chooseBox.setVisible(false);
+                this.startText.setVisible(true);
+                setTimeout(() => {
+                    this.startText.setVisible(false);
+                    this.tableContainer.setVisible(true);
+                }, 2000);
+            });
+            
+            const self = this;
+            //listen for moves
+            this.socket.on('move', (info) => {
+                handleMove(self, info);
+            });
+        }
+
+        function handleMove(ctx, move) {
+            ctx.tableInfo[move.place].content.text = move.character;
+            ctx.tableMatrix[move.place % 3][Math.floor(move.place / 3)] = (move.character == 'O' ? 1 : -1);
+            if (move.turn == ctx.playerCharacter) {
+                ctx.playLock = false;
+                ctx.infoText.text = "It is your turn to play";
+            }
+            else {
+                ctx.playLock = true;
+                ctx.infoText.text = "Please wait for your opponent to play";
+            }
+
+            const winner = checkWin(ctx);
+            if (winner != "") {
+                ctx.infoText.text = "YOU " + (winner == ctx.playerCharacter ? "WIN!" : "LOSE!");
+                ctx.playLock = true;
+            }
+        }
+
+        function checkWin(ctx) {
+            let winner = "";
+            for (var i = 0; i < 3; i++) {
+                var rowSum = 0;
+                for (var j = 0; j < 3; j++) {
+                    rowSum += ctx.tableMatrix[i][j];
+                }
+                if (rowSum === 3) {
+                    winner = "O";
+                    ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startY, ctx.startX + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startY + ctx.tableWidth);
+                }
+                else if (rowSum === -3) {
+                    winner = "X";
+                    ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startY, ctx.startX + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startY + ctx.tableWidth);
+                }
+            }
+
+            for (var i = 0; i < 3; i++) {
+                var colSum = 0;
+                for (var j = 0; j < 3; j++) {
+                    colSum += ctx.tableMatrix[j][i];
+                }
+                if (colSum === 3) {
+                    winner = "O";
+                    ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startX + ctx.tableWidth, ctx.startY + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5));
+                }
+                else if (colSum === -3) {
+                    winner = "X";
+                    ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5), ctx.startX + ctx.tableWidth, ctx.startY + (i * ctx.cellWidth) + (ctx.cellWidth * 0.5));
+                }
+            }
+
+            if (ctx.tableMatrix[0][0] + ctx.tableMatrix[1][1] + ctx.tableMatrix[2][2] === 3) {
+                winner = "O";
+                ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY, ctx.startX + ctx.tableWidth, ctx.startY + ctx.tableWidth);
+            }
+            else if (ctx.tableMatrix[0][0] + ctx.tableMatrix[1][1] + ctx.tableMatrix[2][2] === -3) {
+                winner = "X";
+                ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY, ctx.startX + ctx.tableWidth, ctx.startY + ctx.tableWidth);
+            }
+
+            if (ctx.tableMatrix[2][0] + ctx.tableMatrix[1][1] + ctx.tableMatrix[0][2] === 3) {
+                winner = "O";
+                ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY + ctx.tableWidth, ctx.startX + ctx.tableWidth, ctx.startY);
+            }
+            else if (ctx.tableMatrix[2][0] + ctx.tableMatrix[1][1] + ctx.tableMatrix[0][2] === -3) {
+                winner = "X";
+                ctx.add.graphics().lineStyle(2, 0x00FF00, 0.5).lineBetween(ctx.startX, ctx.startY + ctx.tableWidth, ctx.startX + ctx.tableWidth, ctx.startY);
+            }
+
+            return winner;
+        }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+</body>
+
+</html>
